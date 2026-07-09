@@ -1,6 +1,9 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "decisions.h"
+#include "motors.h"
+#include "calculations.h"
 
 const int SENSOR_PINS[NUM_SENSORS] = {2, 3, 4, 5, 6, 7, 8, 9};
 
@@ -18,9 +21,9 @@ const int pwmResolution = 8;
 const int leftPWMChannel = 0;
 const int rightPWMChannel = 1;
 
-const float Kp = 0.45;
-const float Ki = 0.0;
-const float Kd = 3.80;
+const float Kp = 0.45;  // For testing
+const float Ki = 0.0;   // For testing
+const float Kd = 3.80;  // For testing
 
 const int baseSpeed = 150;
 const int maxSpeed = 255;
@@ -32,3 +35,30 @@ int sensorMax[NUM_SENSORS];
 
 int lastError;
 float integral;
+
+void setup() {
+    Serial.begin(115200);
+    delay(1000);
+
+    pinMode(ENA, OUTPUT);
+    pinMode(IN1, OUTPUT);
+    pinMode(IN2, OUTPUT);
+
+    pinMode(ENB, OUTPUT);
+    pinMode(IN3, OUTPUT);
+    pinMode(IN4, OUTPUT);
+
+    ledcSetup(leftPWMChannel, pwmFreq, pwmResolution);
+    ledcSetup(rightPWMChannel, pwmFreq, pwmResolution);
+
+    ledcAttachPin(ENA, leftPWMChannel);
+    ledcAttachPin(ENB, rightPWMChannel);
+
+    setMotorSpeeds(0, 0);
+
+    calibrateSensors();
+}
+
+void loop() {
+    movement();
+}

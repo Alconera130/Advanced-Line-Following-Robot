@@ -7,14 +7,11 @@
 
 void movement() {
     streamSensors();
-    avoid();
-    terminate();
-
-    if (normalized[0] > GRID_THRESHOLD && normalized[NUM_SENSORS - 1] > GRID_THRESHOLD) {
-        blindForward(35);
-        return;
-    }
-
+    
+    if (activeBlackCount >= 7 && totalSum > 7400) avoid(); return;
+    if (activeGrayCount >= 5 && activeBlackCount <= 2) terminate(); return;
+    if (normalized[0] > GRID_THRESHOLD && normalized[NUM_SENSORS - 1] > GRID_THRESHOLD) blindForward(35); return;
+    
     int position = weightedPos(normalized, activeBlackCount);
     PID(position);
     
