@@ -4,8 +4,12 @@
 #define BLACK_THRESHOLD 800
 #define GREY_THRESHOLD 350
 #define GRID_THRESHOLD 3400
+#define STEP_LENGTH 3
 
 extern const int SENSOR_PINS[NUM_SENSORS];
+
+enum TurnState { NONE, LEFT, RIGHT };
+TurnState turnState = NONE;
 
 extern const int ENA;
 extern const int IN1;
@@ -43,5 +47,5 @@ extern int activeBlackCount;
 extern int activeGrayCount;
 
 extern int step;
-extern const char steps[];
+extern const char steps[STEP_LENGTH];
 extern int turnBias;

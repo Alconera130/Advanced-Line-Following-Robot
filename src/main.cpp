@@ -43,7 +43,7 @@ int activeBlackCount = 0;
 int activeGrayCount = 0;
 
 int step = 0;
-const char steps[] = { 'L', 'R', 'S' };
+const char steps[STEP_LENGTH] = { 'L', 'R', 'S' };
 int turnBias = 0;
 
 void setup() {

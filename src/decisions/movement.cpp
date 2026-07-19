@@ -16,8 +16,6 @@ void movement() {
     
     int position = weightedPos(normalized, activeBlackCount);
     PID(position);
-
-    turnBias = 0;
     
     delayMicroseconds(500);
 }

@@ -31,8 +31,23 @@ void PID(int position) {
         speed = baseSpeed - 30; // medium turn
     }
 
-    int leftMotorPWMValue  = speed + correction + turnBias;
-    int rightMotorPWMValue = speed - correction - turnBias;
+    switch (turnState) {
+        case LEFT:
+            correction += 80; // bias to the left
+            break;
+        case RIGHT:
+            correction -= 80; // bias to the right
+            break;
+        case NONE:
+            break;  
+    }
+
+    if (turnState != NONE && abs(error) < 300) {
+        turnState = NONE;
+    }
+
+    int leftMotorPWMValue  = speed + correction;
+    int rightMotorPWMValue = speed - correction;
 
     leftMotorPWMValue  = constrain(leftMotorPWMValue, 0, maxSpeed);
     rightMotorPWMValue = constrain(rightMotorPWMValue, 0, maxSpeed);

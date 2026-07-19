@@ -8,7 +8,9 @@ int weightedPos(int normalized[], int activeCount) {
 
     int weights[NUM_SENSORS] = {};
     for (int i = 0; i < NUM_SENSORS; i++) {
-        weights[i] = (i - (NUM_SENSORS - 1) / 2) * 1000; 
+        float center = (NUM_SENSORS - 1) / 2.0;
+
+        weights[i] = (int)((i - center) * 1000); 
     }
 
     if (activeCount == 0) {
