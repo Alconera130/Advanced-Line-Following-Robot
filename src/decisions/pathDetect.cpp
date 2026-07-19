@@ -9,25 +9,29 @@ void pathDetect(bool priority = false) {
     bool right = normalized[NUM_SENSORS - 1] > GRID_THRESHOLD;
     bool center = normalized[NUM_SENSORS / 2] > GRID_THRESHOLD;
 
-    if (left && right && center && !priority) {
-        const char direction = steps[step++ % STEP_LENGTH];
+    if (left && right && center) {
+        if (priority) {
+            Serial.println("[PATH DETECTED] Both sides and center");
+            turnState = NONE;
+        } else {
+            const char direction = steps[step++ % STEP_LENGTH];
         
-        switch (direction) {
-            case 'L':
-                Serial.println("[PATH DETECTED] Both sides, turning left");
-                turnState = LEFT;
-                break;
-            case 'R':
-                Serial.println("[PATH DETECTED] Both sides, turning right");
-                turnState = RIGHT;
-                break;
-            case 'S':
-                Serial.println("[PATH DETECTED] Both sides, moving straight");
-                turnState = NONE;
-                break;
+            switch (direction) {
+                case 'L':
+                    Serial.println("[PATH DETECTED] Both sides, turning left");
+                    turnState = LEFT;
+                    break;
+                case 'R':
+                    Serial.println("[PATH DETECTED] Both sides, turning right");
+                    turnState = RIGHT;
+                    break;
+                case 'S':
+                    Serial.println("[PATH DETECTED] Both sides, moving straight");
+                    turnState = NONE;
+                    break;
+            }
         }
     }
-    else if (left && right && center && priority) { Serial.println("[PATH DETECTED] Both sides"); turnState = NONE; }
     else if (left) { Serial.println("[PATH DETECTED] Left side"); turnState = LEFT; }
     else if (right) { Serial.println("[PATH DETECTED] Right side"); turnState = RIGHT; }
 }
