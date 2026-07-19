@@ -5,7 +5,7 @@ A submission for WRG. This robot features a PID controller that constantly adjus
 ## How does it work?
 1. Upon startup, the robot calibrates its sensors depending on its environments
 2. After finishing the calibration, the robot begins its sensor streaming, which constantly reads the values of the IR sensors
-3. While streaming, the robot decide for 4 things: To avoid a potential obstacle (BETA), to terminate its process, to blindly go forward, and turn. The robot will prioritize avoidinng the object, terminating its processes, blindly going forward, and turning respectively
+3. While streaming, the robot decide for 4 things: To avoid a potential obstacle (BETA), to terminate its process, to blindly go forward, and to turn. The robot will prioritize avoiding the object, terminating its processes, blindly going forward, and turning respectively
 
 ## Caveats
 
