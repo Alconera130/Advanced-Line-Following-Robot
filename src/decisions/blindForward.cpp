@@ -4,6 +4,6 @@
 #include "motors.h"
 
 void blindForward(int durationMs) {
-  setMotorSpeeds(baseSpeed, baseSpeed);
-  delay(durationMs); 
+    setMotorSpeeds(baseSpeed, baseSpeed);
+    delay(durationMs); 
 }

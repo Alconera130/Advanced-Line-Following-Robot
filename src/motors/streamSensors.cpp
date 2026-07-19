@@ -4,11 +4,9 @@
 #include "motors.h"
 
 void streamSensors() {
-    int rawValues[NUM_SENSORS];
-    int normalized[NUM_SENSORS];
-    long totalSum = 0;
-    int activeBlackCount = 0;
-    int activeGrayCount = 0;
+    totalSum = 0;
+    activeBlackCount = 0;
+    activeGrayCount = 0;
 
     for (int i = 0; i < NUM_SENSORS; i++) {
         rawValues[i] = analogRead(SENSOR_PINS[i]); // Read raw values
@@ -18,9 +16,9 @@ void streamSensors() {
         
         totalSum += normalized[i];
         
-        if (normalized[i] > 800) {
+        if (normalized[i] > BLACK_THRESHOLD) {
             activeBlackCount++;
-        } else if (normalized[i] > 350 && normalized[i] <= 800) {
+        } else if (normalized[i] > GREY_THRESHOLD && normalized[i] <= BLACK_THRESHOLD) {
             activeGrayCount++;
         }
     }

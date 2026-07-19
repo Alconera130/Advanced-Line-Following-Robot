@@ -5,4 +5,5 @@
 void avoid();
 void blindForward(int durationMs);
 void movement();
+void pathDetect(bool priority = false);
 void terminate();

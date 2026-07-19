@@ -28,13 +28,23 @@ const float Kd = 3.80;  // For testing
 const int baseSpeed = 150;
 const int maxSpeed = 255;
 
-const int GRID_THRESHOLD = 3400;
-
 int sensorMin[NUM_SENSORS];
 int sensorMax[NUM_SENSORS];
 
 int lastError;
-float integral;
+float integral = 0;
+float lastError = 0;
+float filteredDerivative = 0;
+
+int rawValues[NUM_SENSORS];
+int normalized[NUM_SENSORS];
+long totalSum = 0;
+int activeBlackCount = 0;
+int activeGrayCount = 0;
+
+int step = 0;
+const char steps[] = { 'L', 'R', 'S' };
+int turnBias = 0;
 
 void setup() {
     Serial.begin(115200);
