@@ -27,7 +27,7 @@ void pathDetect(bool priority = false) {
                 break;
         }
     }
-    else if (left && right && priority) { Serial.println("[PATH DETECTED] Both sides"); turnState = NONE; }
+    else if (left && right && center && priority) { Serial.println("[PATH DETECTED] Both sides"); turnState = NONE; }
     else if (left) { Serial.println("[PATH DETECTED] Left side"); turnState = LEFT; }
     else if (right) { Serial.println("[PATH DETECTED] Right side"); turnState = RIGHT; }
 }
