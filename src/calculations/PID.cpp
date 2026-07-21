@@ -13,11 +13,11 @@ void PID(int position) {
     if (integral < -10000) integral = -10000;
 
     float iTerm = Ki * integral;
+
     float rawDerivative = error - lastError;
-
     filteredDerivative = 0.7 * filteredDerivative + 0.3 * rawDerivative;
-
     float dTerm = Kd * filteredDerivative;
+
     int correction = (int)(pTerm + iTerm + dTerm);
 
     lastError = error;

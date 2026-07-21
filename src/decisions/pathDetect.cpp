@@ -7,7 +7,13 @@
 void pathDetect(bool priority = false) {
     bool left = normalized[0] > GRID_THRESHOLD;
     bool right = normalized[NUM_SENSORS - 1] > GRID_THRESHOLD;
-    bool center = normalized[NUM_SENSORS / 2] > GRID_THRESHOLD;
+
+    bool center = false;
+    int width = NUM_SENSORS % 2 == 0 ? 2 : 3;
+
+    for (int i = 0; i < width; i++) {
+        center |= normalized[NUM_SENSORS / 2 - width / 2 + i] > GRID_THRESHOLD;
+    }
 
     if (left && right && center) {
         if (priority) {
