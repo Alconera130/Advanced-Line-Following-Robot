@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "calculations.h"
 
 int weightedPos(int normalized[], int activeCount) {
     long numerator = 0;

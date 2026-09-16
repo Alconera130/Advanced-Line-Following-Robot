@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "main.h"
+#include "motors.h"
 
 void calibrateSensors() {
     for (int i = 0; i < NUM_SENSORS; i++) {
