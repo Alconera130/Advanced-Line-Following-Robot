@@ -6,7 +6,7 @@
 
 namespace {
 	constexpr uint32_t kCalibrationMagic = 0x58313643UL;  // "X16C"
-	constexpr uint16_t kCalibrationVersion = 1;
+	constexpr uint16_t kCalibrationVersion = 2;
 
 	struct CalibrationBlob {
 		uint32_t magic;
@@ -39,6 +39,8 @@ void ViperX16::begin() {
 	pinMode(cfg::kViperAdcPin, INPUT);
 	analogReadResolution(12);
 	analogSetPinAttenuation(cfg::kViperAdcPin, ADC_11db);
+	activePolarity_ = cfg::kDefaultLineIsDark ? LinePolarity::DARK
+											 : LinePolarity::LIGHT;
 	loadCalibration();
 }
 
@@ -59,7 +61,7 @@ uint16_t ViperX16::readChannel(uint8_t channel) const {
 	return static_cast<uint16_t>(sum / cfg::kSamplesPerSensor);
 }
 
-uint16_t ViperX16::normalise(uint8_t channel, uint16_t raw) const {
+uint16_t ViperX16::normaliseReflectance(uint8_t channel, uint16_t raw) const {
 	const uint16_t low = minimum_[channel];
 	const uint16_t high = maximum_[channel];
 
@@ -70,29 +72,21 @@ uint16_t ViperX16::normalise(uint8_t channel, uint16_t raw) const {
 	const int32_t scaled = constrain(
 		(static_cast<int32_t>(raw) - low) * 1000L / static_cast<int32_t>(high - low),
 		0L, 1000L);
-	
-	return cfg::kLineIsDark ? static_cast<uint16_t>(1000 - scaled)
-							: static_cast<uint16_t>(scaled);
+
+	return cfg::kSensorOutputIncreasesWithReflectance
+			? static_cast<uint16_t>(scaled)
+			: static_cast<uint16_t>(1000 - scaled);
 }
 
-void ViperX16::read(SensorFrame& frame) {
+void ViperX16::buildFrame(const uint16_t response[], LinePolarity polarity,
+							 SensorFrame& frame) const {
 	int32_t weightedSum = 0;
 	uint32_t lineSum = 0;
 	uint32_t denominator = 0;
 	frame.activeCount = 0;
 
 	for (uint8_t i = 0; i < kViperSensorCount; ++i) {
-		frame.raw[i] = readChannel(i);
-			const uint16_t normalised = normalise(i, frame.raw[i]);
-		
-		if (!filterInitialised_) {
-			filtered_[i] = normalised;
-		} else {
-			filtered_[i] += cfg::kSensorFilterAlpha * (normalised - filtered_[i]);
-		}
-
-		frame.line[i] = static_cast<uint16_t>(constrain(
-			static_cast<int32_t>(filtered_[i] + 0.5F), 0L, 1000L));
+		frame.line[i] = response[i];
 
 		lineSum += frame.line[i];
 		denominator += frame.line[i];
@@ -107,7 +101,6 @@ void ViperX16::read(SensorFrame& frame) {
 		}
 	}
 
-	filterInitialised_ = true;
 	frame.strength = static_cast<uint16_t>(lineSum / kViperSensorCount);
 	frame.position = denominator == 0
 						? 0
@@ -122,11 +115,112 @@ void ViperX16::read(SensorFrame& frame) {
 	frame.leftEdge = frame.line[0] >= cfg::kBranchThreshold;
 	frame.rightEdge = frame.line[kViperSensorCount - 1] >= cfg::kBranchThreshold;
 	frame.wide = frame.activeCount >= cfg::kJunctionActiveSensors;
+	frame.polarity = polarity;
+	frame.polarityChanged = false;
+}
+
+int16_t ViperX16::candidateScore(const SensorFrame& frame,
+							  bool isCurrentPolarity) const {
+	if (!frame.lineVisible) {
+		return -500;
+	}
+
+	int16_t score = 240;
+	if (frame.activeCount <= cfg::kNominalLineMaximumSensors) {
+		score += static_cast<int16_t>((cfg::kNominalLineMaximumSensors -
+			frame.activeCount) * 18);
+	} else {
+		score -= static_cast<int16_t>((frame.activeCount -
+			cfg::kNominalLineMaximumSensors) * 42);
+	}
+
+	// A line normally has a limited footprint; an almost-full array is usually
+	// the background seen through the wrong polarity. Keep the current choice
+	// sticky so a legitimate wide junction does not flip mode for one frame.
+	if (frame.activeCount >= cfg::kUniformBackgroundSensors) {
+		score -= 180;
+	}
+	if (isCurrentPolarity) {
+		score += 65;
+	}
+	if (previousLineVisible_) {
+		const int16_t displacement = abs(frame.position - previousPosition_);
+		score -= static_cast<int16_t>(min(90, static_cast<int>(displacement / 95)));
+	}
+	return score;
+}
+
+void ViperX16::read(SensorFrame& frame) {
+	uint16_t raw[kViperSensorCount]{};
+	uint16_t darkResponse[kViperSensorCount]{};
+	uint16_t lightResponse[kViperSensorCount]{};
+
+	for (uint8_t i = 0; i < kViperSensorCount; ++i) {
+		raw[i] = readChannel(i);
+		const uint16_t reflectance = normaliseReflectance(i, raw[i]);
+		const uint16_t dark = 1000 - reflectance;
+		const uint16_t light = reflectance;
+
+		if (!filterInitialised_) {
+			darkFiltered_[i] = dark;
+			lightFiltered_[i] = light;
+		} else {
+			darkFiltered_[i] += cfg::kSensorFilterAlpha * (dark - darkFiltered_[i]);
+			lightFiltered_[i] += cfg::kSensorFilterAlpha * (light - lightFiltered_[i]);
+		}
+		darkResponse[i] = static_cast<uint16_t>(constrain(
+			static_cast<int32_t>(darkFiltered_[i] + 0.5F), 0L, 1000L));
+		lightResponse[i] = static_cast<uint16_t>(constrain(
+			static_cast<int32_t>(lightFiltered_[i] + 0.5F), 0L, 1000L));
+	}
+	filterInitialised_ = true;
+
+	SensorFrame darkFrame{};
+	SensorFrame lightFrame{};
+	buildFrame(darkResponse, LinePolarity::DARK, darkFrame);
+	buildFrame(lightResponse, LinePolarity::LIGHT, lightFrame);
+
+	SensorFrame* current = activePolarity_ == LinePolarity::DARK ? &darkFrame : &lightFrame;
+	SensorFrame* alternative = activePolarity_ == LinePolarity::DARK ? &lightFrame : &darkFrame;
+	const int16_t currentScore = candidateScore(*current, true);
+	const int16_t alternativeScore = candidateScore(*alternative, false);
+	const bool protectWideJunction = current->wide &&
+		current->activeCount < cfg::kUniformBackgroundSensors;
+	const bool shouldSwitch = cfg::kEnableAutomaticPolarity && !protectWideJunction &&
+		alternative->lineVisible &&
+		alternativeScore >= currentScore + cfg::kPolaritySwitchScoreMargin;
+
+	if (shouldSwitch) {
+		++switchCandidateFrames_;
+	} else {
+		switchCandidateFrames_ = 0;
+	}
+
+	bool changed = false;
+	if (switchCandidateFrames_ >= cfg::kPolaritySwitchConfirmFrames) {
+		activePolarity_ = activePolarity_ == LinePolarity::DARK
+			? LinePolarity::LIGHT : LinePolarity::DARK;
+		switchCandidateFrames_ = 0;
+		current = activePolarity_ == LinePolarity::DARK ? &darkFrame : &lightFrame;
+		changed = true;
+	}
+
+	frame = *current;
+	for (uint8_t i = 0; i < kViperSensorCount; ++i) {
+		frame.raw[i] = raw[i];
+	}
+	frame.polarityChanged = changed;
+	if (frame.lineVisible) {
+		previousPosition_ = frame.position;
+	}
+	previousLineVisible_ = frame.lineVisible;
 }
 
 void ViperX16::startCalibration() {
 	calibrationValid_ = false;
 	filterInitialised_ = false;
+	switchCandidateFrames_ = 0;
+	previousLineVisible_ = false;
 	for (uint8_t i = 0; i < kViperSensorCount; ++i) {
 		minimum_[i] = 4095;
 		maximum_[i] = 0;

@@ -44,6 +44,9 @@ void Robot::update() {
         case RobotState::LINE_RECOVERY:
             updateRecovery();
         break;
+        case RobotState::DEAD_END_TURN:
+            updateDeadEndTurn();
+        break;
         case RobotState::CALIBRATION_REQUIRED:
         case RobotState::WAIT_START:
         case RobotState::FINISHED:
@@ -53,7 +56,7 @@ void Robot::update() {
 
     // A short heartbeat without slowing the control loop.
     const bool on = state_ == RobotState::RUNNING || state_ == RobotState::JUNCTION_ENTRY ||
-                    state_ == RobotState::JUNCTION_TURN;
+                    state_ == RobotState::JUNCTION_TURN || state_ == RobotState::DEAD_END_TURN;
     const bool blink = ((millis() / 250U) & 1U) != 0U;
     digitalWrite(cfg::kStatusLedPin, on ? HIGH : (blink && state_ != RobotState::WAIT_START));
 }
@@ -172,6 +175,9 @@ void Robot::beginRun() {
 
     lastSeenPosition_ = 0;
     junctionLocked_ = false;
+    pathDepth_ = 0;
+    deadEndReturns_ = 0;
+    returningFromDeadEnd_ = false;
     lastControlUs_ = micros();
 
     setState(RobotState::RUNNING);
@@ -182,6 +188,11 @@ void Robot::updateRunning() {
     sensors_.read(lastFrame_);
     const uint32_t now = millis();
 
+    if (lastFrame_.polarityChanged) {
+        Serial.print(F("Line polarity switched to "));
+        Serial.println(lastFrame_.polarity == LinePolarity::DARK ? F("dark") : F("light"));
+    }
+
     if (lastFrame_.lineVisible) {
         lastSeenPosition_ = lastFrame_.position;
         lostSinceMs_ = 0;
@@ -190,10 +201,12 @@ void Robot::updateRunning() {
             lostSinceMs_ = now;
         }
 
-        if (now - lostSinceMs_ >= cfg::kLineLostConfirmMs) {
-            startRecovery();
+        if (now - lostSinceMs_ <= cfg::kBrokenLineBridgeMs) {
+            bridgeBrokenLine();
             return;
         }
+        startRecovery();
+            return;
     }
 
     if (cfg::kEnableStopLine && lastFrame_.activeCount >= cfg::kStopActiveSensors &&
@@ -214,7 +227,7 @@ void Robot::updateRunning() {
         junctionLocked_ = false;
     } else if (!junctionLocked_) {
         junctionLocked_ = true;
-        pendingTurn_ = nextRouteAction();
+        pendingTurn_ = selectJunctionAction(lastFrame_);
         controller_.reset();
 
         setState(RobotState::JUNCTION_ENTRY);
@@ -285,6 +298,10 @@ void Robot::updateRecovery() {
         Serial.println(F("Line reacquired."));
         return;
     }
+    if (cfg::kEnableDeadEndReturn && elapsed >= cfg::kRecoveryBeforeDeadEndMs) {
+        startDeadEndTurn();
+        return;
+    }
     if (elapsed >= cfg::kRecoveryTimeoutMs) {
         fault(F("line not found before recovery timeout"));
         return;
@@ -295,6 +312,51 @@ void Robot::updateRecovery() {
     const int16_t direction = lastSeenPosition_ >= 0 ? 1 : -1;
     motors_.command(direction * cfg::kRecoveryTurnPwm,
                     -direction * cfg::kRecoveryTurnPwm);
+}
+
+void Robot::bridgeBrokenLine() {
+    const int16_t correction = static_cast<int16_t>(constrain(
+        lastControl_.correction * cfg::kGapCorrectionScale,
+        -static_cast<float>(cfg::kMaxCorrection), static_cast<float>(cfg::kMaxCorrection)));
+    motors_.command(constrain(cfg::kGapBridgePwm + correction,
+                              -cfg::kMotorMaxPwm, cfg::kMotorMaxPwm),
+                    constrain(cfg::kGapBridgePwm - correction,
+                              -cfg::kMotorMaxPwm, cfg::kMotorMaxPwm));
+    // Do not feed the gap duration into D on the first real reading afterwards.
+    lastControlUs_ = micros();
+}
+
+void Robot::startDeadEndTurn() {
+    if (deadEndReturns_ >= cfg::kMaximumDeadEndReturns) {
+        fault(F("dead-end return limit reached"));
+        return;
+    }
+    ++deadEndReturns_;
+    // Select a consistent direction from the last observed line side. The value
+    // is held through the U-turn so electrical noise cannot reverse it halfway.
+    deadEndTurnDirection_ = lastSeenPosition_ >= 0 ? 1 : -1;
+    setState(RobotState::DEAD_END_TURN);
+    Serial.println(F("Likely dead end: executing memorised return turn."));
+}
+
+void Robot::updateDeadEndTurn() {
+    sensors_.read(lastFrame_);
+    const uint32_t elapsed = millis() - stateStartedMs_;
+    motors_.command(deadEndTurnDirection_ * cfg::kDeadEndTurnPwm,
+                    -deadEndTurnDirection_ * cfg::kDeadEndTurnPwm);
+
+    if (elapsed >= cfg::kDeadEndMinimumTurnMs && centreReacquired(lastFrame_)) {
+        controller_.reset();
+        returningFromDeadEnd_ = true;
+        junctionLocked_ = false;
+        lastControlUs_ = micros();
+        setState(RobotState::RUNNING);
+        Serial.println(F("Return line acquired; seeking next untried branch."));
+        return;
+    }
+    if (elapsed >= cfg::kDeadEndMaximumTurnMs) {
+        fault(F("dead-end U-turn did not reacquire a return line"));
+    }
 }
 
 void Robot::finish() {
@@ -324,10 +386,62 @@ bool Robot::junctionPresent(const SensorFrame& frame) const {
     return frame.wide && (frame.leftEdge || frame.rightEdge);
 }
 
-JunctionAction Robot::nextRouteAction() {
-    const JunctionAction action = cfg::kRoute[routeIndex_ % cfg::kRouteLength];
-    ++routeIndex_;
+JunctionAction Robot::selectJunctionAction(const SensorFrame& frame) {
+    JunctionAction action;
+    if (returningFromDeadEnd_) {
+        // The branch just returned from is behind the robot now. Pop its entry
+        // and choose an available forward branch rather than replaying the route.
+        returningFromDeadEnd_ = false;
+        if (pathDepth_ > 0) {
+            --pathDepth_;
+        }
+        action = firstAvailableAction(frame);
+    } else {
+        action = nextRouteAction(frame);
+    }
+    rememberJunctionAction(action);
     return action;
+}
+
+JunctionAction Robot::nextRouteAction(const SensorFrame& frame) {
+    const JunctionAction requested = cfg::kRoute[routeIndex_ % cfg::kRouteLength];
+    ++routeIndex_;
+    return actionAvailable(requested, frame) ? requested : firstAvailableAction(frame);
+}
+
+JunctionAction Robot::firstAvailableAction(const SensorFrame& frame) const {
+    // This order provides deterministic depth-first exploration after a return.
+    if (actionAvailable(JunctionAction::LEFT, frame)) return JunctionAction::LEFT;
+    if (actionAvailable(JunctionAction::STRAIGHT, frame)) return JunctionAction::STRAIGHT;
+    if (actionAvailable(JunctionAction::RIGHT, frame)) return JunctionAction::RIGHT;
+    return JunctionAction::STRAIGHT;
+}
+
+bool Robot::actionAvailable(JunctionAction action, const SensorFrame& frame) const {
+    switch (action) {
+        case JunctionAction::LEFT:
+            return frame.leftEdge;
+        case JunctionAction::RIGHT:
+            return frame.rightEdge;
+        case JunctionAction::STRAIGHT:
+            return frame.line[6] >= cfg::kBranchThreshold ||
+                   frame.line[7] >= cfg::kBranchThreshold ||
+                   frame.line[8] >= cfg::kBranchThreshold ||
+                   frame.line[9] >= cfg::kBranchThreshold;
+    }
+    return false;
+}
+
+void Robot::rememberJunctionAction(JunctionAction action) {
+    if (pathDepth_ < cfg::kPathMemoryDepth) {
+        pathMemory_[pathDepth_++].action = action;
+    } else {
+        // Retain the most recent path decisions; a tiny MCU cannot store a full
+        // graph without odometry or identifiable markers at each intersection.
+        memmove(pathMemory_, pathMemory_ + 1,
+                sizeof(PathMemoryEntry) * (cfg::kPathMemoryDepth - 1));
+        pathMemory_[cfg::kPathMemoryDepth - 1].action = action;
+    }
 }
 
 void Robot::showStatus() const {
@@ -340,7 +454,9 @@ void Robot::showStatus() const {
     Serial.print(F(" strength="));
     Serial.print(lastFrame_.strength);
     Serial.print(F(" active="));
-    Serial.println(lastFrame_.activeCount);
+    Serial.print(lastFrame_.activeCount);
+    Serial.print(F(" polarity="));
+    Serial.println(lastFrame_.polarity == LinePolarity::DARK ? F("dark") : F("light"));
 }
 
 void Robot::emitTelemetry() {
@@ -355,6 +471,8 @@ void Robot::emitTelemetry() {
     Serial.print(lastFrame_.activeCount);
     Serial.print(F(" q="));
     Serial.print(lastFrame_.strength);
+    Serial.print(F(" m="));
+    Serial.print(lastFrame_.polarity == LinePolarity::DARK ? 'D' : 'L');
     Serial.print(F(" e="));
     Serial.print(lastControl_.error, 3);
     Serial.print(F(" l="));
@@ -372,6 +490,7 @@ const __FlashStringHelper* Robot::stateName() const {
         case RobotState::JUNCTION_ENTRY: return F("JUNCTION_ENTRY");
         case RobotState::JUNCTION_TURN: return F("JUNCTION_TURN");
         case RobotState::LINE_RECOVERY: return F("LINE_RECOVERY");
+        case RobotState::DEAD_END_TURN: return F("DEAD_END_TURN");
         case RobotState::FINISHED: return F("FINISHED");
         case RobotState::FAULT: return F("FAULT");
     }

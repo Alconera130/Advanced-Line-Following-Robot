@@ -5,6 +5,11 @@
 constexpr uint8_t kViperSensorCount = 16;
 constexpr int16_t kPositionLimit = 7500;
 
+// The line's optical polarity after the sensor output has been normalised.
+// DARK means a dark line on a lighter floor; LIGHT means a bright line on a
+// darker floor. The sensor driver can change this automatically at a boundary.
+enum class LinePolarity : uint8_t { DARK, LIGHT };
+
 enum class RobotState : uint8_t {
   CALIBRATION_REQUIRED,
   WAIT_START,
@@ -13,6 +18,7 @@ enum class RobotState : uint8_t {
   JUNCTION_ENTRY,
   JUNCTION_TURN,
   LINE_RECOVERY,
+  DEAD_END_TURN,
   FINISHED,
   FAULT
 };
@@ -29,6 +35,8 @@ struct SensorFrame {
     bool leftEdge;
     bool rightEdge;
     bool wide;
+    LinePolarity polarity;
+    bool polarityChanged;
 };
 
 struct ControlOutput {

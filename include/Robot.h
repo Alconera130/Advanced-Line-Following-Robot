@@ -4,6 +4,7 @@
 
 #include "LineController.h"
 #include "MotorDriver.h"
+#include "RobotConfig.h"
 #include "RobotTypes.h"
 #include "ViperX16.h"
 
@@ -22,6 +23,9 @@ class Robot {
         void updateJunction();
         void startRecovery();
         void updateRecovery();
+        void bridgeBrokenLine();
+        void startDeadEndTurn();
+        void updateDeadEndTurn();
         void finish();
         void fault(const __FlashStringHelper* reason);
         void setState(RobotState state);
@@ -30,8 +34,16 @@ class Robot {
         bool centreReacquired(const SensorFrame& frame) const;
         bool junctionPresent(const SensorFrame& frame) const;
 
-        JunctionAction nextRouteAction();
+        JunctionAction selectJunctionAction(const SensorFrame& frame);
+        JunctionAction nextRouteAction(const SensorFrame& frame);
+        JunctionAction firstAvailableAction(const SensorFrame& frame) const;
+        bool actionAvailable(JunctionAction action, const SensorFrame& frame) const;
+        void rememberJunctionAction(JunctionAction action);
         const __FlashStringHelper* stateName() const;
+
+        struct PathMemoryEntry {
+            JunctionAction action;
+        };
 
         ViperX16 sensors_;
         MotorDriver motors_;
@@ -50,10 +62,15 @@ class Robot {
         uint32_t lastControlUs_ = 0;
         uint32_t buttonPressedMs_ = 0;
         uint8_t routeIndex_ = 0;
+        uint8_t pathDepth_ = 0;
+        uint8_t deadEndReturns_ = 0;
         int16_t lastSeenPosition_ = 0;
+        int8_t deadEndTurnDirection_ = 1;
+        PathMemoryEntry pathMemory_[cfg::kPathMemoryDepth]{};
         
         bool buttonWasDown_ = false;
         bool longPressHandled_ = false;
         bool telemetryEnabled_ = false;
         bool junctionLocked_ = false;
+        bool returningFromDeadEnd_ = false;
 };

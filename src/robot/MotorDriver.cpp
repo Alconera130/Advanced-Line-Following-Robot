@@ -17,6 +17,10 @@ void MotorDriver::begin() {
     pinMode(cfg::kLeftIn2Pin, OUTPUT);
     pinMode(cfg::kRightIn1Pin, OUTPUT);
     pinMode(cfg::kRightIn2Pin, OUTPUT);
+    if (cfg::kMotorStandbyPin >= 0) {
+        pinMode(cfg::kMotorStandbyPin, OUTPUT);
+        digitalWrite(cfg::kMotorStandbyPin, HIGH);
+    }
     ledcSetup(cfg::kLeftPwmChannel, cfg::kMotorPwmHz, cfg::kMotorPwmResolution);
     ledcSetup(cfg::kRightPwmChannel, cfg::kMotorPwmHz, cfg::kMotorPwmResolution);
     ledcAttachPin(cfg::kLeftPwmPin, cfg::kLeftPwmChannel);
@@ -25,6 +29,9 @@ void MotorDriver::begin() {
 }
 
 void MotorDriver::command(int16_t left, int16_t right) {
+    if (cfg::kMotorStandbyPin >= 0) {
+        digitalWrite(cfg::kMotorStandbyPin, HIGH);
+    }
     targetLeft_ = constrain(left, -cfg::kMotorMaxPwm, cfg::kMotorMaxPwm);
     targetRight_ = constrain(right, -cfg::kMotorMaxPwm, cfg::kMotorMaxPwm);
 }
@@ -73,6 +80,9 @@ void MotorDriver::emergencyStop() {
     digitalWrite(cfg::kLeftIn2Pin, LOW);
     digitalWrite(cfg::kRightIn1Pin, LOW);
     digitalWrite(cfg::kRightIn2Pin, LOW);
+    if (cfg::kMotorStandbyPin >= 0) {
+        digitalWrite(cfg::kMotorStandbyPin, LOW);
+    }
     
     ledcWrite(cfg::kLeftPwmChannel, 0);
     ledcWrite(cfg::kRightPwmChannel, 0);
