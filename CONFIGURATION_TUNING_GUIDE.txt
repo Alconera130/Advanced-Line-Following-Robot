@@ -1,0 +1,374 @@
+ADVANCED LINE FOLLOWING ROBOT - CONFIGURATION AND TUNING GUIDE
+===============================================================
+
+This guide explains every setting in include/RobotConfig.h.
+
+There is no universal perfect configuration. Motor torque, tyre grip, wheel
+diameter, battery voltage, sensor height, line width, and course material all
+change the correct values. Tune one group at a time, on the finished robot.
+
+UNITS USED BY THE FIRMWARE
+--------------------------
+
+* Raw ADC readings: 0 to 4095.
+* Normalised sensor line strength: 0 to 1000.
+* Line position: -7500 at the far left, 0 in the centre, +7500 at the far right.
+* PID error: normalised further to -1.0 through +1.0.
+* Motor PWM: -255 (full reverse) through +255 (full forward).
+* Timing values ending in Ms: milliseconds.
+* kMuxSettleUs: microseconds.
+
+
+1. PIN AND MOTOR-DRIVER SETTINGS
+---------------------------------
+
+These must match physical wiring. They are not performance tuning values.
+
+kViperAdcPin = 1
+    The Viper mux SIG/OUT analogue signal. Keep it on the configured ADC pin.
+
+kMuxSelectPins = {2, 37, 4, 39}
+    Viper mux selection pins, in S0, S1, S2, S3 order. Changing the order
+    scrambles sensor positions and makes steering incorrect.
+
+kStartButtonPin = 11
+    A momentary button connected from GPIO 11 to ground. Tap to start after
+    calibration; hold for one second to calibrate.
+
+kStatusLedPin = LED_BUILTIN
+    The Wemos built-in status LED.
+
+kLeftIn1Pin, kLeftIn2Pin, kLeftPwmPin = 38, 36, 8
+    TB6612 AIN1, AIN2, PWMA for the left motor.
+
+kRightIn1Pin, kRightIn2Pin, kRightPwmPin = 13, 9, 14
+    TB6612 BIN1, BIN2, PWMB for the right motor.
+
+kMotorStandbyPin = 10
+    TB6612 STBY. Use -1 only if using a motor driver without an STBY input.
+
+kLeftPwmChannel, kRightPwmChannel = 0, 1
+    Internal ESP32 PWM channel assignments. Leave unchanged.
+
+kMotorPwmHz = 20000
+    Motor PWM frequency. 20 kHz is above most audible noise and works well
+    with a TB6612. Leave unchanged initially.
+
+kMotorPwmResolution = 8
+    Uses the familiar 0 to 255 PWM range. Leave unchanged.
+
+
+2. SENSOR AND AUTOMATIC POLARITY SETTINGS
+------------------------------------------
+
+kSensorOutputIncreasesWithReflectance = true
+    Electrical direction of the sensor's analogue output. Set false only if a
+    white surface produces a lower ADC value than black. With automatic
+    polarity active, this mostly changes the dark/light label rather than the
+    ability to track.
+
+kDefaultLineIsDark = true
+    Starting preference while the automatic classifier settles. Use false if
+    the course begins with a white line on black.
+
+kEnableAutomaticPolarity = true
+    Enables automatic switching between dark-on-light and light-on-dark line
+    segments. Keep enabled for adaptive courses.
+
+kPolaritySwitchConfirmFrames = 5
+    Number of consecutive frames needed before switching polarity.
+    Raise to 7 to 10 if it changes mode falsely.
+    Lower to 3 or 4 if inverted sections begin too abruptly to follow.
+
+kPolaritySwitchScoreMargin = 90
+    How much better the alternate polarity must look before it is accepted.
+    Raise for more stability. Lower if it refuses to change at a real boundary.
+
+kNominalLineMaximumSensors = 6
+    Expected maximum active sensors on an ordinary line. Raise only if your
+    physical track line is genuinely wide.
+
+kUniformBackgroundSensors = 13
+    An almost fully active array usually indicates the background is being
+    interpreted as a line using the wrong polarity. Keep near 13.
+
+kSamplesPerSensor = 2
+    Real ADC samples averaged after each mux selection.
+    Use 1 for maximum response speed on clean electronics.
+    Use 2 for the normal balance of speed and noise rejection.
+    Use 3 only if verified electrical noise remains after fixing wiring/power.
+
+kMuxSettleUs = 4
+    Wait after changing the Viper mux address. Raise to 6 to 10 only if a
+    sensor reading appears affected by the previously selected sensor.
+
+kMinimumCalibrationSpan = 120
+    Minimum raw ADC variation required for each sensor during calibration.
+    Lower it if a correct calibration is rejected.
+    Raise it if weak, disconnected, or poorly swept channels go unnoticed.
+
+kSensorFilterAlpha = 0.48
+    Sensor low-pass-filter responsiveness.
+    Higher (0.55 to 0.65): faster response, more noise.
+    Lower (0.30 to 0.45): smoother response, more delay.
+
+kActiveThreshold = 280
+    Minimum line strength for a sensor to count as active.
+    Raise if floor noise activates sensors.
+    Lower if a real line is weak or intermittent.
+
+kLineVisibleStrength = 75
+    Minimum average sensor response for a line to be considered present.
+    Raise if noise is mistaken for a line.
+    Lower if it falsely reports line loss.
+
+kBranchThreshold = 620
+    Strong response required at an edge sensor to identify a branch.
+    Raise if curves look like junctions.
+    Lower if real junction branches are missed.
+
+kJunctionActiveSensors = 7
+    Minimum active sensors required to call a wide junction.
+    Raise for fewer false junctions. Lower for faint/wide junctions.
+
+
+3. PID AND SPEED CONTROL
+------------------------
+
+The error is normalised to -1.0 through +1.0. The PID outputs a motor PWM
+correction, so kPidP = 128 means a maximum proportional correction of 128 PWM.
+It is not directly comparable to PID values from code using raw sensor units.
+
+kPidP = 128.0
+    Proportional correction: reacts to how far the line is from centre.
+    Raise it for stronger correction.
+    Too high: repetitive left-right weaving or oscillation.
+    Too low: wide, lazy turns and missed corners.
+
+kPidI = 12.0
+    Integral correction: fixes persistent mechanical drift, such as unequal
+    wheel diameters or motors.
+    Raise only after P and D are correct.
+    Too high: slow oscillation, late overshoot, and poor tight turns.
+
+kPidD = 5.5
+    Derivative correction: responds to how quickly the error changes.
+    It damps weaving and helps with fast corner entry.
+    Too high: motor chatter and sensitivity to sensor noise.
+
+kDerivativeFilter = 0.72
+    Smooths derivative calculations.
+    Raise if the D term is noisy/chattery.
+    Lower if D reacts too late to a corner.
+
+kIntegralLimit = 0.55
+    Limits stored integral error and prevents wind-up while motor output is
+    saturated. Raise only if a small, persistent drift remains.
+
+kMaxCorrection = 175
+    Limits steering authority in PWM.
+    Raise if sharp corrections are insufficient.
+    Lower if steering causes wheel slip, skids, or large oscillation.
+
+kCruisePwm = 195
+    Straight-line target speed. Increase only after tracking is reliable.
+
+kCornerPwm = 92
+    Lowest target speed used in sharp turns.
+    Lower for tighter corners or lower-grip tyres.
+    Raise only after sharp turns are reliable.
+
+kDerivativeSlowdown = 0.15
+    How much rapid error change reduces speed.
+    Raise if it enters corners too fast.
+    Lower if it slows excessively on normal bends.
+
+SAFE FIRST-DRIVE PID BASELINE
+-----------------------------
+
+For a first powered test, a conservative baseline is:
+
+    kPidP = 75.0F
+    kPidI = 0.0F
+    kPidD = 2.5F
+    kCruisePwm = 130
+    kCornerPwm = 80
+    kMaxCorrection = 140
+
+PID TUNING ORDER
+----------------
+
+1. Set I to zero.
+2. Raise P by 5 to 10 at a time until the robot follows decisively but begins
+   to weave.
+3. Reduce P slightly.
+4. Raise D by 0.5 to 1.0 at a time until the weave is damped.
+5. Add I by 1 to 2 at a time only if it always pulls to one side on straights.
+6. Raise cruise speed in 10-PWM steps.
+7. If sharp turns fail, lower kCornerPwm or raise kDerivativeSlowdown before
+   blindly increasing P.
+
+
+4. MOTOR RESPONSE
+-----------------
+
+kMotorMaxPwm = 255
+    Maximum output for 8-bit PWM. Leave unchanged.
+
+kMotorMinimumPwm = 48
+    Motor deadband compensation. Find the lowest PWM at which BOTH wheels
+    reliably start moving on the floor, then set this 3 to 8 PWM higher.
+    Too low: an inside wheel stalls in turns.
+    Too high: the robot hunts around the line.
+
+kMotorSlewPwmPerSecond = 1200
+    Limits acceleration and braking. It is why the robot transitions smoothly
+    between corner speed and cruise speed.
+    Raise to 1800 to 2500 if it feels too slow leaving corners.
+    Lower to 700 to 1000 if it jerks, slips, or wobbles.
+
+
+5. JUNCTIONS AND ROUTE
+----------------------
+
+kRoute = { LEFT, RIGHT, STRAIGHT }
+    Fixed decisions at successive detected junctions. Do not make it empty:
+    an empty route has length zero and cannot be indexed safely.
+
+kRouteLength
+    Calculated from kRoute. Never edit it manually.
+
+kJunctionEntryMs = 38
+    Time to drive into a junction before making a decision.
+    Raise if it turns before reaching the branch.
+    Lower if it overshoots before turning.
+
+kStraightTraverseMs = 105
+    Forward time through a junction when choosing straight.
+    Raise if normal PID starts too early. Lower if it drives too far.
+
+kMinimumTurnMs = 75
+    Prevents immediate reacquisition of the old line.
+    Raise if a turn finishes prematurely.
+
+kMaximumTurnMs = 700
+    Safety limit before recovery begins. Raise only for very large turns.
+
+kJunctionEntryPwm = 112
+    Conservative junction-entry speed.
+
+kTurnOutsidePwm = 150
+    Outer-wheel speed during a junction turn.
+
+kTurnInsidePwm = -64
+    Inside-wheel command during a turn. Negative means reverse/pivot.
+    A less-negative value makes a wider, smoother turn.
+
+kTurnReacquirePosition = 2500
+    How close to the centre the new line must be before normal PID resumes.
+    Lower: more precise, but may overshoot before accepting the line.
+    Higher: faster, but could accept the wrong line early.
+
+
+6. DOTTED LINES, RECOVERY, AND DEAD ENDS
+-----------------------------------------
+
+kBrokenLineBridgeMs = 110
+    Maximum time to continue smoothly through a missing/dotted section.
+    Estimate it from: gap time = physical gap length / robot speed.
+    Add a modest margin. Too long can drive beyond a true dead end.
+
+kGapBridgePwm = 118
+    Safe speed during a missing-line bridge. Raise only after dotted lines work
+    reliably at the intended speed.
+
+kGapCorrectionScale = 0.65
+    Fraction of the last steering correction retained through the gap.
+    Raise for curved dotted lines. Lower if it arcs too much on straight dots.
+
+kRecoveryBeforeDeadEndMs = 360
+    Search time before a long absence is declared a likely dead end.
+
+kRecoveryTimeoutMs = 900
+    Search safety limit. It mainly matters when dead-end return is disabled,
+    because enabled dead-end return begins its U-turn earlier.
+
+kRecoveryTurnPwm = 115
+    Turn speed during normal line search.
+    Lower for precision; raise for faster, more aggressive recovery.
+
+kEnableDeadEndReturn = true
+    Enables the timed U-turn, return-line reacquisition, and junction memory.
+
+kDeadEndMinimumTurnMs = 330
+    Earliest time the U-turn is allowed to accept a return line. Set it near
+    70 to 80 percent of the measured time your robot needs for a 180-degree turn.
+
+kDeadEndMaximumTurnMs = 1150
+    Absolute U-turn safety limit. Set it near 125 to 150 percent of the
+    measured 180-degree turn time.
+
+kDeadEndTurnPwm = 128
+    U-turn pivot strength. Lower values are slower but more repeatable; higher
+    values are faster but vary more with battery voltage and tyre traction.
+
+kMaximumDeadEndReturns = 8
+    Safety cap that prevents endless exploration.
+
+kPathMemoryDepth = 16
+    Number of recent junction decisions remembered. Leave at 16.
+
+Without encoders, dead-end turns are time-based. Wheel encoders are the most
+valuable future upgrade because they make turn angle and travelled-distance
+memory repeatable.
+
+
+7. STOP MARKER, CALIBRATION, AND DIAGNOSTICS
+--------------------------------------------
+
+kEnableStopLine = false
+    Enable only after confirming the competition's finish-marker design.
+
+kStopActiveSensors = 13
+    Minimum active sensors for a stop marker.
+
+kStopStrength = 760
+    Minimum average line strength for a stop marker.
+
+kStopHoldMs = 180
+    Required duration of the marker. Prevents a wide normal feature from
+    stopping the robot.
+
+kCalibrationDurationMs = 4800
+    Total calibration time. Raise if the sensor does not sweep over both line
+    and floor during calibration.
+
+kCalibrationPhaseMs = 600
+    Direction-change interval during calibration.
+
+kCalibrationTurnPwm = 66
+    Calibration pivot strength. Raise if its sweep is too small; lower if it
+    skids or moves too violently.
+
+kLongPressMs = 1000
+    Button hold duration that starts calibration.
+
+kTelemetryIntervalMs = 100
+    Serial reporting interval. 100 ms equals 10 reports/second. Leave it at
+    100 ms or more while the robot is racing.
+
+
+RECOMMENDED TUNING ORDER
+------------------------
+
+1. Confirm all wiring, common ground, motor direction, and 3.3 V logic levels.
+2. Calibrate on the exact competition surface and at final sensor height.
+3. Verify sensor stability and polarity with telemetry while bench testing.
+4. Tune P and D at low cruise speed.
+5. Correct persistent mechanical bias with a small I value.
+6. Raise cruise speed slowly; tune corner speed and derivative slowdown.
+7. Tune junction entry and turn timings at low speed before racing them.
+8. Tune dotted-line bridge duration for the real gap size and actual speed.
+9. Tune dead-end U-turn timing last, with the completed chassis and battery.
+
+Change one setting or one related pair at a time. Record each test result.
