@@ -5,8 +5,10 @@
 void Robot::begin() {
     Serial.begin(115200);
     pinMode(cfg::kStartButtonPin, INPUT_PULLUP);
-    pinMode(cfg::kStatusLedPin, OUTPUT);
-    digitalWrite(cfg::kStatusLedPin, LOW);
+    if (cfg::kStatusLedPin >= 0) {
+        pinMode(cfg::kStatusLedPin, OUTPUT);
+        digitalWrite(cfg::kStatusLedPin, LOW);
+    }
 
     motors_.begin();
     sensors_.begin();
@@ -58,7 +60,10 @@ void Robot::update() {
     const bool on = state_ == RobotState::RUNNING || state_ == RobotState::JUNCTION_ENTRY ||
                     state_ == RobotState::JUNCTION_TURN || state_ == RobotState::DEAD_END_TURN;
     const bool blink = ((millis() / 250U) & 1U) != 0U;
-    digitalWrite(cfg::kStatusLedPin, on ? HIGH : (blink && state_ != RobotState::WAIT_START));
+    if (cfg::kStatusLedPin >= 0) {
+        digitalWrite(cfg::kStatusLedPin,
+                     on ? HIGH : (blink && state_ != RobotState::WAIT_START));
+    }
 }
 
 void Robot::pollButton() {

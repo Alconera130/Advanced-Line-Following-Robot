@@ -12,21 +12,42 @@
 */
 
 namespace cfg {
+#if defined(ROBOT_TARGET_C3_SUPERMINI)
+    /*
+        ESP32-C3 SuperMini temporary wiring. STBY is tied directly to 3.3 V;
+        GPIO9 is the board's BOOT button and becomes the start/calibrate button
+        after boot. GPIO2 is a boot strap pin: the Viper S0 input must not pull
+        it low during reset (a 10 kOhm pull-up to 3.3 V is recommended).
+    */
+    constexpr uint8_t kViperAdcPin = 1;  // ADC1_CH1, Viper mux SIG/OUT
+    constexpr uint8_t kMuxSelectPins[4] = {2, 3, 4, 5};  // Viper S0..S3
+    constexpr uint8_t kStartButtonPin = 9;  // on-board BOOT button to GND
+    constexpr int8_t kStatusLedPin = -1;  // GPIO8 LED left unused on this map
+
+    constexpr uint8_t kLeftIn1Pin = 6;   // TB6612 AIN1
+    constexpr uint8_t kLeftIn2Pin = 7;   // TB6612 AIN2
+    constexpr uint8_t kLeftPwmPin = 10;  // TB6612 PWMA
+    constexpr uint8_t kRightIn1Pin = 20; // TB6612 BIN1
+    constexpr uint8_t kRightIn2Pin = 21; // TB6612 BIN2
+    constexpr uint8_t kRightPwmPin = 0;  // TB6612 PWMB
+    constexpr int8_t kMotorStandbyPin = -1;  // wire TB6612 STBY to 3.3 V
+#else
     constexpr uint8_t kViperAdcPin = 1;  // ADC1_CH0, Viper mux SIG/OUT
     // Requested wiring retained where there is no conflict: S1=GPIO39 and S3=GPIO38.
     constexpr uint8_t kMuxSelectPins[4] = {2, 37, 4, 39};  // Viper S0, S1, S2, S3
-    constexpr uint8_t kStartButtonPin = 11;                // button to GND
-    constexpr uint8_t kStatusLedPin = LED_BUILTIN;
+    constexpr uint8_t kStartButtonPin = 6;                // button to GND
+    constexpr int8_t kStatusLedPin = LED_BUILTIN;
 
     // TB6612FNG-style motor interface. GPIO38 cannot also be AIN1 because it is
     // already the Viper S3 signal; GPIO37 is the conflict-free replacement.
     constexpr uint8_t kLeftIn1Pin = 38;   // AIN1
-    constexpr uint8_t kLeftIn2Pin = 36;   // AIN2
+    constexpr uint8_t kLeftIn2Pin = 34;   // AIN2
     constexpr uint8_t kLeftPwmPin = 8;    // PWMA
     constexpr uint8_t kRightIn1Pin = 13;  // BIN1
-    constexpr uint8_t kRightIn2Pin = 9;   // BIN2
+    constexpr uint8_t kRightIn2Pin = 10;   // BIN2
     constexpr uint8_t kRightPwmPin = 14;  // PWMB
-    constexpr int8_t kMotorStandbyPin = 10;  // TB6612 STBY; set -1 for drivers without it
+    constexpr int8_t kMotorStandbyPin = -1;  // TB6612 STBY; set -1 for drivers without it
+#endif
     constexpr uint8_t kLeftPwmChannel = 0;
     constexpr uint8_t kRightPwmChannel = 1;
     constexpr uint32_t kMotorPwmHz = 20000;
@@ -53,8 +74,8 @@ namespace cfg {
 
     // PID uses normalised lateral error (-1.0 to +1.0), then produces PWM units.
     // Tune kPidP first, then kPidD; use a little kPidI only for a persistent bias.
-    constexpr float kPidP = 128.0F;
-    constexpr float kPidI = 12.0F;
+    constexpr float kPidP = 75.0F;
+    constexpr float kPidI = 10.0F;
     constexpr float kPidD = 5.5F;
     constexpr float kDerivativeFilter = 0.72F;
     constexpr float kIntegralLimit = 0.55F;
