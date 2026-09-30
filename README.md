@@ -7,6 +7,9 @@ The active firmware is `src/main.cpp` and `src/robot/`; the original prototype f
 ## Competition features
 
 - Per-sensor black/white calibration, smoothing, and a weighted line centroid from `-7500` (left) to `+7500` (right).
+- Line-segment locking: when separate lines appear under the wide X16 array,
+  normal steering stays on the sensor group nearest the previously tracked line
+  instead of averaging unrelated tracks together.
 - PID with measured loop time, derivative filtering, bounded integral wind-up, and automatic speed reduction as curvature rises.
 - Automatic dark/bright line classification with hysteresis. A white-on-black section can therefore follow a normal black-on-white section without manually changing a compile-time option.
 - Broken/dotted-line bridging: for a short, configured gap it holds the final steering vector at a safe speed instead of stuttering into a line-search turn.
@@ -26,11 +29,10 @@ Viper X16's on-board 16:1 mux   SIG / OUT ── WEMOS S2 Mini GPIO 1 (ADC1_CH0)
                                 S2           ── WEMOS GPIO 4
                                 S3           ── WEMOS GPIO 39
 
-WEMOS GPIO 38,36,8    ── TB6612 AIN1, AIN2, PWMA
+WEMOS GPIO 38,34,8    ── TB6612 AIN1, AIN2, PWMA
 WEMOS GPIO 13,10,14    ── TB6612 BIN1, BIN2, PWMB
-WEMOS GPIO 10         ── TB6612 STBY
-WEMOS GPIO 11         ── momentary START button to GND
-WEMOS GPIO 15         ── built-in status LED
+TB6612 STBY           ── 3.3 V directly
+WEMOS GPIO 6          ── momentary START button to GND
 ```
 
 The pins are for the **WEMOS LOLIN S2 Mini** and are defined in [`RobotConfig.h`](include/RobotConfig.h). The board has native USB; the PlatformIO target is `lolin_s2_mini`.
@@ -61,10 +63,17 @@ Edit [`RobotConfig.h`](include/RobotConfig.h):
 
 - `kEnableAutomaticPolarity` is on by default. It evaluates both dark-line and light-line interpretations, then changes only after `kPolaritySwitchConfirmFrames` consistent frames. Set `kDefaultLineIsDark` only for its starting preference.
 - Set `kSensorOutputIncreasesWithReflectance = false` if a white surface produces lower raw ADC values than a black one. This is the electrical direction of the sensor, not the course-line colour.
+- `kEnableLineSegmentLock` is enabled by default. Keep it enabled on courses
+  that have neighbouring lines. `kLineSegmentMergeGapSensors = 1` prevents one
+  weak channel from splitting a single physical line; `kLineLockMaximumPositionJump`
+  is the largest normal frame-to-frame line move accepted before recovery begins.
 - Tune `kBrokenLineBridgeMs` for the longest legitimate gap between dots at your chosen speed. Too long can make a real dead end look like a gap; too short makes dots trigger recovery.
 - Tune `kDeadEndMinimumTurnMs` and `kDeadEndMaximumTurnMs` with the finished chassis. They are open-loop turn times because wheel encoders are not yet fitted.
 - Measure the motor's static-friction threshold and set `kMotorMinimumPwm` just above it. A lower value makes the inside wheel hesitate; a higher one makes the robot hunt.
-- Replace `kRoute` with the competition's junction sequence. Stop-line recognition is disabled by default because event marking conventions vary.
+- Replace `kRoute` with the competition's junction sequence. Include a
+  `STRAIGHT` entry for each true side junction that the route should ignore;
+  a separate nearby line does not consume an entry. Stop-line recognition is
+  disabled by default because event marking conventions vary.
 - Confirm that positive commands drive both wheels forward. Swap an H-bridge direction pair if not; do not compensate for a reversed wheel by changing PID signs.
 
 Tune on the finished chassis, battery, tyres, sensor height, and course material:
@@ -73,11 +82,20 @@ Tune on the finished chassis, battery, tyres, sensor height, and course material
 2. Raise `kPidD` to damp the weave. It responds to how quickly the line moves across the X16, which is especially valuable on fast corner entry. Too much turns sensor noise into motor chatter.
 3. Add only enough `kPidI` to remove a constant bias such as unequal wheels. It is bounded deliberately, because stored correction is harmful at the steering limit.
 4. Increase `kCruisePwm` gradually. If sharp corners fail, lower `kCornerPwm` or increase `kDerivativeSlowdown` before blindly increasing gain.
-5. Telemetry reports centroid position (`p`), active channels (`a`), average line strength (`q`), selected polarity (`m=D` or `m=L`), normalised error (`e`), and requested left/right PWM (`l`/`r`). Log a difficult corner before changing thresholds.
+5. Telemetry reports locked steering position (`p`), full-array centroid (`g`), active channels (`a`), line-segment count (`n`), average line strength (`q`), selected polarity (`m=D` or `m=L`), normalised error (`e`), and requested left/right PWM (`l`/`r`). Log a difficult corner before changing thresholds.
 
 ## Adaptive-course behaviour and limits
 
-Circles, hexagons, S-curves, and other continuous geometry use the same centroid and speed-profile loop; they do not require a special shape mode, and no control-state `delay()` is used. Polygon corners still need a `kCornerPwm` low enough for the available tyre grip.
+Circles, hexagons, S-curves, and other continuous geometry use the same locked-segment centroid and speed-profile loop; they do not require a special shape mode, and no control-state `delay()` is used. Polygon corners still need a `kCornerPwm` low enough for the available tyre grip.
+
+When two physically separate lines appear under the X16, the firmware chooses
+the candidate nearest the last locked line position. A line that is more than
+`kLineLockMaximumPositionJump` away is treated as a line loss rather than a
+surprise command to change tracks. At a connected/merged junction, the sensor
+groups become one wide segment; route logic then deliberately chooses left,
+right, or straight. This is continuity-based tracking, not map vision: an
+unmarked crossing whose lines are physically merged still needs a route entry
+or a course marker to establish intent.
 
 Polarity adaptation assumes that the entire line under the sensor array has one polarity. At the exact boundary between black-on-white and white-on-black, the array can temporarily see both; the five-frame hysteresis and broken-line bridge are designed to carry it through this short transition. Alternating light/dark pixels within the same sensor footprint are not a meaningful single-line signal and need a course-specific vision/marker design.
 

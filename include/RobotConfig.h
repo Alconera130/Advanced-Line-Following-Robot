@@ -33,13 +33,13 @@ namespace cfg {
     constexpr int8_t kMotorStandbyPin = -1;  // wire TB6612 STBY to 3.3 V
 #else
     constexpr uint8_t kViperAdcPin = 1;  // ADC1_CH0, Viper mux SIG/OUT
-    // Requested wiring retained where there is no conflict: S1=GPIO39 and S3=GPIO38.
+    // Viper select wiring is S0=GPIO2, S1=GPIO37, S2=GPIO4, S3=GPIO39.
     constexpr uint8_t kMuxSelectPins[4] = {2, 37, 4, 39};  // Viper S0, S1, S2, S3
     constexpr uint8_t kStartButtonPin = 6;                // button to GND
     constexpr int8_t kStatusLedPin = LED_BUILTIN;
 
-    // TB6612FNG-style motor interface. GPIO38 cannot also be AIN1 because it is
-    // already the Viper S3 signal; GPIO37 is the conflict-free replacement.
+    // TB6612FNG-style motor interface. GPIO39 is Viper S3, so GPIO38 remains
+    // available for AIN1.
     constexpr uint8_t kLeftIn1Pin = 38;   // AIN1
     constexpr uint8_t kLeftIn2Pin = 34;   // AIN2
     constexpr uint8_t kLeftPwmPin = 8;    // PWMA

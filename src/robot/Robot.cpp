@@ -202,7 +202,9 @@ void Robot::updateRunning() {
 
     const LineSegment* trackedSegment = selectTrackedSegment(lastFrame_);
     if (trackedSegment != nullptr) {
-        trackedPosition_ = trackedSegment->position;
+        trackedPosition_ = cfg::kEnableLineSegmentLock
+                               ? trackedSegment->position
+                               : lastFrame_.position;
         lastSeenPosition_ = trackedPosition_;
         lostSinceMs_ = 0;
     } else {
@@ -307,7 +309,9 @@ void Robot::updateRecovery() {
     const uint32_t elapsed = millis() - stateStartedMs_;
     const LineSegment* recoveredSegment = selectTrackedSegment(lastFrame_, true);
     if (recoveredSegment != nullptr) {
-        trackedPosition_ = recoveredSegment->position;
+        trackedPosition_ = cfg::kEnableLineSegmentLock
+                               ? recoveredSegment->position
+                               : lastFrame_.position;
         lastSeenPosition_ = trackedPosition_;
         controller_.reset();
         lastControlUs_ = micros();
@@ -516,11 +520,15 @@ void Robot::showStatus() const {
     Serial.print(F(" calibrated="));
     Serial.print(sensors_.calibrationValid() ? F("yes") : F("no"));
     Serial.print(F(" position="));
+    Serial.print(trackedPosition_);
+    Serial.print(F(" full_position="));
     Serial.print(lastFrame_.position);
     Serial.print(F(" strength="));
     Serial.print(lastFrame_.strength);
     Serial.print(F(" active="));
     Serial.print(lastFrame_.activeCount);
+    Serial.print(F(" segments="));
+    Serial.print(lastFrame_.segmentCount);
     Serial.print(F(" polarity="));
     Serial.println(lastFrame_.polarity == LinePolarity::DARK ? F("dark") : F("light"));
 }
@@ -532,9 +540,13 @@ void Robot::emitTelemetry() {
     
     lastTelemetryMs_ = millis();
     Serial.print(F("p="));
+    Serial.print(trackedPosition_);
+    Serial.print(F(" g="));
     Serial.print(lastFrame_.position);
     Serial.print(F(" a="));
     Serial.print(lastFrame_.activeCount);
+    Serial.print(F(" n="));
+    Serial.print(lastFrame_.segmentCount);
     Serial.print(F(" q="));
     Serial.print(lastFrame_.strength);
     Serial.print(F(" m="));

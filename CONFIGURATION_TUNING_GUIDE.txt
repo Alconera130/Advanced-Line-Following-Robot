@@ -24,6 +24,11 @@ UNITS USED BY THE FIRMWARE
 
 These must match physical wiring. They are not performance tuning values.
 
+The values listed in this section are for the WEMOS S2 Mini profile. While the
+ESP32-C3 SuperMini adapter is fitted, build `c3_supermini` instead: its complete
+temporary pin map is the `ROBOT_TARGET_C3_SUPERMINI` section of RobotConfig.h.
+Do not copy S2 GPIO numbers onto the C3 by physical header position.
+
 kViperAdcPin = 1
     The Viper mux SIG/OUT analogue signal. Keep it on the configured ADC pin.
 
@@ -31,21 +36,23 @@ kMuxSelectPins = {2, 37, 4, 39}
     Viper mux selection pins, in S0, S1, S2, S3 order. Changing the order
     scrambles sensor positions and makes steering incorrect.
 
-kStartButtonPin = 11
-    A momentary button connected from GPIO 11 to ground. Tap to start after
+kStartButtonPin = 6
+    A momentary button connected from GPIO 6 to ground. Tap to start after
     calibration; hold for one second to calibrate.
 
 kStatusLedPin = LED_BUILTIN
     The Wemos built-in status LED.
 
-kLeftIn1Pin, kLeftIn2Pin, kLeftPwmPin = 38, 36, 8
+kLeftIn1Pin, kLeftIn2Pin, kLeftPwmPin = 38, 34, 8
     TB6612 AIN1, AIN2, PWMA for the left motor.
 
-kRightIn1Pin, kRightIn2Pin, kRightPwmPin = 13, 9, 14
+kRightIn1Pin, kRightIn2Pin, kRightPwmPin = 13, 10, 14
     TB6612 BIN1, BIN2, PWMB for the right motor.
 
-kMotorStandbyPin = 10
-    TB6612 STBY. Use -1 only if using a motor driver without an STBY input.
+kMotorStandbyPin = -1
+    The current firmware does not use a GPIO for TB6612 STBY. Wire STBY
+    directly to the ESP32's 3.3 V logic rail. Do not connect it to VM/motor
+    voltage. The temporary C3 adapter also uses this arrangement.
 
 kLeftPwmChannel, kRightPwmChannel = 0, 1
     Internal ESP32 PWM channel assignments. Leave unchanged.
@@ -131,21 +138,43 @@ kJunctionActiveSensors = 7
     Minimum active sensors required to call a wide junction.
     Raise for fewer false junctions. Lower for faint/wide junctions.
 
+kEnableLineSegmentLock = true
+    Keeps normal steering locked to the same contiguous group of active X16
+    sensors when a separate nearby track enters the array. Keep enabled for a
+    dense map with side tracks. No special competition-time action is needed.
+
+kLineSegmentMergeGapSensors = 1
+    Allows one inactive sensor between active sensors to remain part of one
+    line segment. This prevents a single weak/noisy channel splitting one
+    physical line into two candidates. Leave at 1 unless your real tracks are
+    extremely narrow and deliberately separated by one sensor pitch.
+
+kLineLockMaximumPositionJump = 3200
+    Largest normal motion allowed between the old and new locked centroid.
+    One sensor pitch is about 1000 position units. Raise to 4000-4500 only if
+    a proven sharp turn causes false line loss; lower it if parallel tracks are
+    still being accepted as the current line.
+
+When telemetry is enabled, p is the locked position used for steering, g is
+the full-array centroid before line separation, and n is the number of line
+segments found. If p remains stable while g jumps toward a side line, the lock
+is doing its job.
+
 
 3. PID AND SPEED CONTROL
 ------------------------
 
 The error is normalised to -1.0 through +1.0. The PID outputs a motor PWM
-correction, so kPidP = 128 means a maximum proportional correction of 128 PWM.
+correction, so kPidP = 75 means a maximum proportional correction of 75 PWM.
 It is not directly comparable to PID values from code using raw sensor units.
 
-kPidP = 128.0
+kPidP = 75.0
     Proportional correction: reacts to how far the line is from centre.
     Raise it for stronger correction.
     Too high: repetitive left-right weaving or oscillation.
     Too low: wide, lazy turns and missed corners.
 
-kPidI = 12.0
+kPidI = 10.0
     Integral correction: fixes persistent mechanical drift, such as unequal
     wheel diameters or motors.
     Raise only after P and D are correct.
@@ -232,8 +261,10 @@ kMotorSlewPwmPerSecond = 1200
 ----------------------
 
 kRoute = { LEFT, RIGHT, STRAIGHT }
-    Fixed decisions at successive detected junctions. Do not make it empty:
-    an empty route has length zero and cannot be indexed safely.
+    Fixed decisions at successive detected junctions. Put STRAIGHT at every
+    genuine side junction that should be passed. Do not make it empty: the
+    firmware now stops compilation with a clear error instead of allowing an
+    unsafe zero-length route.
 
 kRouteLength
     Calculated from kRoute. Never edit it manually.
