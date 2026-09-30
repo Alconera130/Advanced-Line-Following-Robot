@@ -72,6 +72,14 @@ namespace cfg {
     constexpr uint16_t kBranchThreshold = 620;
     constexpr uint8_t kJunctionActiveSensors = 7;
 
+    // Keep steering on the same physical line when the X16 can see a nearby,
+    // separate track. A one-channel inactive gap is merged so a noisy line is
+    // not incorrectly split into two paths. The maximum position jump is in
+    // X16 centroid units (one sensor pitch is about 1000 units).
+    constexpr bool kEnableLineSegmentLock = true;
+    constexpr uint8_t kLineSegmentMergeGapSensors = 1;
+    constexpr int16_t kLineLockMaximumPositionJump = 3200;
+
     // PID uses normalised lateral error (-1.0 to +1.0), then produces PWM units.
     // Tune kPidP first, then kPidD; use a little kPidI only for a persistent bias.
     constexpr float kPidP = 75.0F;
@@ -94,6 +102,7 @@ namespace cfg {
     };
 
     constexpr uint8_t kRouteLength = sizeof(kRoute) / sizeof(kRoute[0]);
+    static_assert(kRouteLength > 0, "kRoute must contain at least one junction action.");
     constexpr uint16_t kJunctionEntryMs = 38;
     constexpr uint16_t kStraightTraverseMs = 105;
     constexpr uint16_t kMinimumTurnMs = 75;

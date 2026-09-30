@@ -31,8 +31,12 @@ class Robot {
         void setState(RobotState state);
         void showStatus() const;
         void emitTelemetry();
+        const LineSegment* selectTrackedSegment(const SensorFrame& frame,
+                                                 bool allowDistantReacquire = false);
+        void resetLineLock();
         bool centreReacquired(const SensorFrame& frame) const;
-        bool junctionPresent(const SensorFrame& frame) const;
+        bool junctionPresent(const SensorFrame& frame,
+                             const LineSegment& trackedSegment) const;
 
         JunctionAction selectJunctionAction(const SensorFrame& frame);
         JunctionAction nextRouteAction(const SensorFrame& frame);
@@ -65,6 +69,7 @@ class Robot {
         uint8_t pathDepth_ = 0;
         uint8_t deadEndReturns_ = 0;
         int16_t lastSeenPosition_ = 0;
+        int16_t trackedPosition_ = 0;
         int8_t deadEndTurnDirection_ = 1;
         PathMemoryEntry pathMemory_[cfg::kPathMemoryDepth]{};
         
@@ -73,4 +78,5 @@ class Robot {
         bool telemetryEnabled_ = false;
         bool junctionLocked_ = false;
         bool returningFromDeadEnd_ = false;
+        bool lineLockInitialised_ = false;
 };

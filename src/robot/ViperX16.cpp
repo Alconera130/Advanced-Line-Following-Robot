@@ -84,6 +84,7 @@ void ViperX16::buildFrame(const uint16_t response[], LinePolarity polarity,
 	uint32_t lineSum = 0;
 	uint32_t denominator = 0;
 	frame.activeCount = 0;
+	frame.segmentCount = 0;
 
 	for (uint8_t i = 0; i < kViperSensorCount; ++i) {
 		frame.line[i] = response[i];
@@ -115,6 +116,55 @@ void ViperX16::buildFrame(const uint16_t response[], LinePolarity polarity,
 	frame.leftEdge = frame.line[0] >= cfg::kBranchThreshold;
 	frame.rightEdge = frame.line[kViperSensorCount - 1] >= cfg::kBranchThreshold;
 	frame.wide = frame.activeCount >= cfg::kJunctionActiveSensors;
+
+	// Build separate line candidates from thresholded sensor groups. A short
+	// inactive gap is allowed inside a segment because one weakly calibrated or
+	// noisy channel should not make a single physical line appear as two paths.
+	uint8_t index = 0;
+	while (index < kViperSensorCount) {
+		while (index < kViperSensorCount &&
+			   frame.line[index] < cfg::kActiveThreshold) {
+			++index;
+		}
+		if (index >= kViperSensorCount || frame.segmentCount >= kMaximumLineSegments) {
+			break;
+		}
+
+		LineSegment& segment = frame.segments[frame.segmentCount];
+		segment.firstSensor = index;
+		segment.lastSensor = index;
+		segment.activeCount = 0;
+		uint32_t segmentSum = 0;
+		int32_t segmentWeightedSum = 0;
+		uint8_t inactiveGap = 0;
+
+		for (; index < kViperSensorCount; ++index) {
+			if (frame.line[index] < cfg::kActiveThreshold) {
+				++inactiveGap;
+				if (inactiveGap > cfg::kLineSegmentMergeGapSensors) {
+					break;
+				}
+				continue;
+			}
+
+			inactiveGap = 0;
+			segment.lastSensor = index;
+			++segment.activeCount;
+			segmentSum += frame.line[index];
+			const int16_t weight = static_cast<int16_t>(
+				(static_cast<int16_t>(index) * 1000) - kPositionLimit);
+			segmentWeightedSum += static_cast<int32_t>(frame.line[index]) * weight;
+		}
+
+		segment.strength = segment.activeCount == 0 ? 0 : static_cast<uint16_t>(
+			segmentSum / segment.activeCount);
+		segment.position = segmentSum == 0 ? 0 : static_cast<int16_t>(constrain(
+			segmentWeightedSum / static_cast<int32_t>(segmentSum),
+			-static_cast<int32_t>(kPositionLimit),
+			static_cast<int32_t>(kPositionLimit)));
+		++frame.segmentCount;
+	}
+
 	frame.polarity = polarity;
 	frame.polarityChanged = false;
 }

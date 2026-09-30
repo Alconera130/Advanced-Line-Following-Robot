@@ -179,10 +179,12 @@ void Robot::beginRun() {
     stopSinceMs_ = 0;
 
     lastSeenPosition_ = 0;
+    routeIndex_ = 0;
     junctionLocked_ = false;
     pathDepth_ = 0;
     deadEndReturns_ = 0;
     returningFromDeadEnd_ = false;
+    resetLineLock();
     lastControlUs_ = micros();
 
     setState(RobotState::RUNNING);
@@ -198,8 +200,10 @@ void Robot::updateRunning() {
         Serial.println(lastFrame_.polarity == LinePolarity::DARK ? F("dark") : F("light"));
     }
 
-    if (lastFrame_.lineVisible) {
-        lastSeenPosition_ = lastFrame_.position;
+    const LineSegment* trackedSegment = selectTrackedSegment(lastFrame_);
+    if (trackedSegment != nullptr) {
+        trackedPosition_ = trackedSegment->position;
+        lastSeenPosition_ = trackedPosition_;
         lostSinceMs_ = 0;
     } else {
         if (lostSinceMs_ == 0) {
@@ -228,7 +232,10 @@ void Robot::updateRunning() {
         stopSinceMs_ = 0;
     }
 
-    if (!junctionPresent(lastFrame_)) {
+    // A separated side line may make the full array look wide, but it must not
+    // consume a route action. A genuine branch is merged with the tracked line
+    // into one wide component before it is treated as a junction.
+    if (!junctionPresent(lastFrame_, *trackedSegment)) {
         junctionLocked_ = false;
     } else if (!junctionLocked_) {
         junctionLocked_ = true;
@@ -247,7 +254,7 @@ void Robot::updateRunning() {
     const uint32_t nowUs = micros();
     const float dt = (nowUs - lastControlUs_) / 1000000.0F;
     lastControlUs_ = nowUs;
-    lastControl_ = controller_.update(lastFrame_.position, dt);
+    lastControl_ = controller_.update(trackedPosition_, dt);
     motors_.command(lastControl_.left, lastControl_.right);
     emitTelemetry();
 }
@@ -268,6 +275,7 @@ void Robot::updateJunction() {
         motors_.command(cfg::kJunctionEntryPwm, cfg::kJunctionEntryPwm);
         if (elapsed >= cfg::kStraightTraverseMs) {
             setState(RobotState::RUNNING);
+            resetLineLock();
             lastControlUs_ = micros();
         }
 
@@ -280,6 +288,7 @@ void Robot::updateJunction() {
     if (elapsed >= cfg::kMinimumTurnMs && centreReacquired(lastFrame_)) {
         controller_.reset();
         setState(RobotState::RUNNING);
+        resetLineLock();
         lastControlUs_ = micros();
     } else if (elapsed >= cfg::kMaximumTurnMs) {
         Serial.println(F("Turn did not reacquire a line."));
@@ -296,7 +305,10 @@ void Robot::startRecovery() {
 void Robot::updateRecovery() {
     sensors_.read(lastFrame_);
     const uint32_t elapsed = millis() - stateStartedMs_;
-    if (lastFrame_.lineVisible) {
+    const LineSegment* recoveredSegment = selectTrackedSegment(lastFrame_, true);
+    if (recoveredSegment != nullptr) {
+        trackedPosition_ = recoveredSegment->position;
+        lastSeenPosition_ = trackedPosition_;
         controller_.reset();
         lastControlUs_ = micros();
         setState(RobotState::RUNNING);
@@ -354,6 +366,7 @@ void Robot::updateDeadEndTurn() {
         controller_.reset();
         returningFromDeadEnd_ = true;
         junctionLocked_ = false;
+        resetLineLock();
         lastControlUs_ = micros();
         setState(RobotState::RUNNING);
         Serial.println(F("Return line acquired; seeking next untried branch."));
@@ -387,8 +400,56 @@ bool Robot::centreReacquired(const SensorFrame& frame) const {
             (frame.line[7] >= cfg::kActiveThreshold || frame.line[8] >= cfg::kActiveThreshold);
 }
 
-bool Robot::junctionPresent(const SensorFrame& frame) const {
-    return frame.wide && (frame.leftEdge || frame.rightEdge);
+const LineSegment* Robot::selectTrackedSegment(const SensorFrame& frame,
+                                                bool allowDistantReacquire) {
+    if (!frame.lineVisible || frame.segmentCount == 0) {
+        return nullptr;
+    }
+
+    const LineSegment* candidate = nullptr;
+    int16_t smallestDistance = INT16_MAX;
+    const int16_t reference = lineLockInitialised_ ? trackedPosition_ : 0;
+
+    for (uint8_t i = 0; i < frame.segmentCount; ++i) {
+        const LineSegment& segment = frame.segments[i];
+        const int16_t distance = abs(segment.position - reference);
+        if (candidate == nullptr || distance < smallestDistance ||
+            (distance == smallestDistance && segment.strength > candidate->strength)) {
+            candidate = &segment;
+            smallestDistance = distance;
+        }
+    }
+
+    if (candidate == nullptr) {
+        return nullptr;
+    }
+
+    // During normal tracking, a far-away isolated line is not the current
+    // path. In a recovery manoeuvre, the robot is deliberately searching, so
+    // permit any visible candidate to re-establish the lock.
+    if (cfg::kEnableLineSegmentLock && lineLockInitialised_ &&
+        !allowDistantReacquire &&
+        smallestDistance > cfg::kLineLockMaximumPositionJump) {
+        return nullptr;
+    }
+
+    trackedPosition_ = candidate->position;
+    lineLockInitialised_ = true;
+    return candidate;
+}
+
+void Robot::resetLineLock() {
+    trackedPosition_ = 0;
+    lineLockInitialised_ = false;
+}
+
+bool Robot::junctionPresent(const SensorFrame& frame,
+                            const LineSegment& trackedSegment) const {
+    const bool trackedPathIsWide =
+        trackedSegment.activeCount >= cfg::kJunctionActiveSensors;
+    const bool trackedPathReachesEdge = trackedSegment.firstSensor == 0 ||
+                                        trackedSegment.lastSensor == kViperSensorCount - 1;
+    return frame.wide && trackedPathIsWide && trackedPathReachesEdge;
 }
 
 JunctionAction Robot::selectJunctionAction(const SensorFrame& frame) {
